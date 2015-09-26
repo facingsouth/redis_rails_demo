@@ -5,12 +5,17 @@ class PostsController < ApplicationController
   # GET /posts.json
   def index
     @posts = Post.all
+
+    @hot_posts = Post.where(id: ordered_posts_by_num_views)
+
+    @msg = track_unique_ip
+
   end
 
   # GET /posts/1
   # GET /posts/1.json
   def show
-    $redis.incr "#{Date.today.year}:#{Date.today.month}:#{Date.today.day}:posts:#{@post.id}:views"
+    @num_views = record_num_views
   end
 
   # GET /posts/new
@@ -71,5 +76,36 @@ class PostsController < ApplicationController
     # Never trust parameters from the scary internet, only allow the white list through.
     def post_params
       params.require(:post).permit(:title, :content)
+    end
+
+    # use redis ordered sets to order posts by num of views
+    def ordered_posts_by_num_views
+      key = "hot-posts"
+
+      Post.all.each do |post|
+        num_views = $redis.get "#{Date.today.year}:#{Date.today.month}:#{Date.today.day}:posts:#{post.id}:views"
+        $redis.zadd key, num_views, post.id
+      end
+
+      $redis.zrevrange key, 0, 5
+    end
+
+    # use redis strings to track num of views on a post
+    def record_num_views
+      key = "#{Date.today.year}:#{Date.today.month}:#{Date.today.day}:posts:#{@post.id}:views"
+      $redis.incr key
+      $redis.get key
+    end
+
+    # use redis sets to track unique visitor ips
+    def track_unique_ip
+      visitor_ip = request.remote_ip
+      key = "posts:visitor-ips"
+
+      if $redis.sadd key, visitor_ip
+        "Hello, my NEW friend from #{visitor_ip}"
+      else
+        "Hello, my OLD friend from #{visitor_ip}"
+      end
     end
 end
